@@ -3,10 +3,14 @@
 
 #include "main.h"
 
-// SSD1306 ?? 7 ? I2C ????? 0x3C,?? 1 ?????? 0x78
+// SSD1306 7 位 I2C 地址为 0x3C,左移 1 位后写入地址为 0x78
 #define OLED_I2C_ADDR   0x78
 
-// ????
+#define OLED_PORT       GPIOB
+#define OLED_SCL_PIN    GPIO_PIN_5
+#define OLED_SDA_PIN    GPIO_PIN_6
+
+// 函数声明
 void OLED_Init(void);
 void OLED_Clear(void);
 void OLED_UpdateScreen(void);
