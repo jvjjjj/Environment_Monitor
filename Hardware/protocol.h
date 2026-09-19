@@ -1,7 +1,6 @@
 #ifndef __PROTOCOL_H
 #define __PROTOCOL_H
-#define FRAME_HEADER_1  0x5A  // 改为 'Z' (ASCII 90)
-#define FRAME_HEADER_2  0xA5  // 或者改为 0x24 '$'
+
 #include "stm32f1xx_hal.h"
 
 #define FRAME_HEADER_1  0xAA
