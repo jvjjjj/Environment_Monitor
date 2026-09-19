@@ -5,6 +5,7 @@
 #include "oled.h"
 #include "protocol.h"
 #include <stdio.h>
+#include <string.h>
 
 static QueueHandle_t q_oled_data = NULL;
 static QueueHandle_t q_comm_data = NULL;
@@ -13,22 +14,27 @@ static QueueHandle_t q_comm_data = NULL;
 static void Task_Sensor(void *pvParameters)
 {
     EnvData_t sensor_env;
+    memset(&sensor_env, 0, sizeof(EnvData_t));
+
     TickType_t xLastWakeTime = xTaskGetTickCount();
     const TickType_t xFrequency = pdMS_TO_TICKS(1000);
 
-    // 硬件双传感器初始化
+    // 硬件双传感器上电初始化
     AHT20_Init();
     BMP280_Init();
 
     for (;;)
     {
-        float dummy_temp = 0.0f;
-        float raw_press_pa = 0.0f;
-
         // 1. 采集 AHT20 温湿度
         AHT20_ReadData(&sensor_env.temperature, &sensor_env.humidity);
 
-        // 2. 采集 BMP280 气压与海拔
+        // 2. BMP280 离线自愈与采集
+        if (!BMP280_IsReady()) {
+            BMP280_Init(); // 若前序初始化失败，后台周期性重试自愈
+        }
+
+        float dummy_temp = 0.0f;
+        float raw_press_pa = 0.0f;
         if (BMP280_ReadData(&dummy_temp, &raw_press_pa) == 0) {
             sensor_env.pressure = raw_press_pa / 100.0f; // 转换为 hPa (百帕)
             sensor_env.altitude = BMP280_CalcAltitude(raw_press_pa);
@@ -58,7 +64,7 @@ static void Task_OLED(void *pvParameters)
         {
             OLED_Clear();
             
-            // 第 0 页: 温湿度 (拼接为紧凑格式)
+            // 第 0 页: 温湿度 (紧凑格式)
             sprintf(str_buf, "T:%.1fC H:%.1f%%", oled_env.temperature, oled_env.humidity);
             OLED_ShowString(0, 0, str_buf, 16);
 
@@ -70,8 +76,13 @@ static void Task_OLED(void *pvParameters)
             sprintf(str_buf, "Alt: %.1fm", oled_env.altitude);
             OLED_ShowString(0, 4, str_buf, 16);
 
-            // 第 6 页: 系统状态
-            OLED_ShowString(0, 6, "RTOS Bus: OK", 16);
+            // 第 6 页: 系统总线与 BMP280 在线自诊断状态
+            if (BMP280_IsReady()) {
+                sprintf(str_buf, "RTOS OK [%02X:%02X]", BMP280_GetAddr(), BMP280_GetChipID());
+            } else {
+                sprintf(str_buf, "BMP Err! ID:%02X", BMP280_GetChipID());
+            }
+            OLED_ShowString(0, 6, str_buf, 16);
 
             OLED_Update();
         }
