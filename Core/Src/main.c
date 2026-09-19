@@ -23,7 +23,12 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 #include "oled.h"
+#include "bsp_i2c.h"
+#include "aht20.h"
+#include "usart.h"
+#include "protocol.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,48 +70,38 @@ void SystemClock_Config(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-  /* Diagnostic checkpoint 1: main entry reached */
-  RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPBEN;
-  GPIOA->CRL = (GPIOA->CRL & 0xF000000F) | 0x03333330;
-  GPIOA->BSRR = GPIO_PIN_1; // PA1 = HIGH (main entry)
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-  GPIOA->BSRR = GPIO_PIN_2; // PA2 = HIGH (HAL_Init passed)
 
   /* Configure the system clock */
   SystemClock_Config();
-  GPIOA->BSRR = GPIO_PIN_3; // PA3 = HIGH (SystemClock_Config passed)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  GPIOA->BSRR = GPIO_PIN_4; // PA4 = HIGH (MX_GPIO_Init passed)
+  MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
-  // 1. 初始化 OLED 屏幕
+  I2C_Bus_Init();
   OLED_Init();
-  GPIOA->BSRR = GPIO_PIN_5; // PA5 = HIGH (OLED_Init passed)
   OLED_Clear();
 
-  // 绘制屏幕边框 (0,0) ~ (127,63)
-  for (uint8_t i = 0; i < 128; i++) {
-    OLED_DrawPoint(i, 0, 1);
-    OLED_DrawPoint(i, 63, 1);
-  }
-  for (uint8_t i = 0; i < 64; i++) {
-    OLED_DrawPoint(0, i, 1);
-    OLED_DrawPoint(127, i, 1);
-  }
+  // 1. 开机总线诊断：扫描总线上的设备
+  // 探测 OLED (0x3C)、AHT20 (0x38)、BMP280 (0x76 或 0x77)
+  uint8_t find_oled = (I2C_CheckDevice(0x3C) == 0);
+  uint8_t find_aht  = (I2C_CheckDevice(0x38) == 0);
+  uint8_t find_bmp  = (I2C_CheckDevice(0x76) == 0 || I2C_CheckDevice(0x77) == 0);
 
-  // 2. 显示 "Hello World!" 字符串
-  OLED_ShowString(16, 24, "Hello World!");
+  // 2. 初始化传感器
+  AHT20_Init();
 
-  // 3. 将显存数据刷新到 OLED 屏幕
-  OLED_UpdateScreen();
-  GPIOA->BSRR = GPIO_PIN_6; // PA6 = HIGH (OLED_UpdateScreen passed)
+  char display_buf[20];
+  float temp = 0.0f;
+  float humi = 0.0f;
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -116,8 +111,29 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_1);
-    for (volatile int d = 0; d < 50000; d++) __NOP();
+    // 每隔 1 秒读一次数据
+    if (AHT20_ReadData(&temp, &humi) == 0) {
+        OLED_Clear();
+        
+        // 第一行显示固定标题与总线健康状态
+        OLED_ShowString(0, 0, "Env Monitor v2.0", 16);
+        
+        // 显示温度 (保留 1 位小数)
+        sprintf(display_buf, "Temp: %.1f C", temp);
+        OLED_ShowString(0, 2, display_buf, 16);
+        
+        // 显示湿度 (保留 1 位小数)
+        sprintf(display_buf, "Humi: %.1f %%", humi);
+        OLED_ShowString(0, 4, display_buf, 16);
+        
+        // 刷新显存到物理屏幕
+        OLED_Update();
+
+        // 串口协议封包发送到 PC
+        Protocol_SendEnvData(temp, humi);
+    }
+
+    HAL_Delay(1000);
   }
   /* USER CODE END 3 */
 }
