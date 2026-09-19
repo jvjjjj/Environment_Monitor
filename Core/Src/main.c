@@ -23,7 +23,14 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 #include "oled.h"
+#include "bsp_i2c.h"
+#include "aht20.h"
+#include "bmp280.h"
+#include "usart.h"
+#include "protocol.h"
+#include "app_tasks.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -65,48 +72,29 @@ void SystemClock_Config(void);
 int main(void)
 {
   /* USER CODE BEGIN 1 */
-  /* Diagnostic checkpoint 1: main entry reached */
-  RCC->APB2ENR |= RCC_APB2ENR_IOPAEN | RCC_APB2ENR_IOPBEN;
-  GPIOA->CRL = (GPIOA->CRL & 0xF000000F) | 0x03333330;
-  GPIOA->BSRR = GPIO_PIN_1; // PA1 = HIGH (main entry)
+
   /* USER CODE END 1 */
 
   /* MCU Configuration--------------------------------------------------------*/
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
-  GPIOA->BSRR = GPIO_PIN_2; // PA2 = HIGH (HAL_Init passed)
 
   /* Configure the system clock */
   SystemClock_Config();
-  GPIOA->BSRR = GPIO_PIN_3; // PA3 = HIGH (SystemClock_Config passed)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
-  GPIOA->BSRR = GPIO_PIN_4; // PA4 = HIGH (MX_GPIO_Init passed)
+  MX_USART1_UART_Init();
 
   /* USER CODE BEGIN 2 */
-  // 1. 初始化 OLED 屏幕
-  OLED_Init();
-  GPIOA->BSRR = GPIO_PIN_5; // PA5 = HIGH (OLED_Init passed)
-  OLED_Clear();
+  I2C_Bus_Init();
 
-  // 绘制屏幕边框 (0,0) ~ (127,63)
-  for (uint8_t i = 0; i < 128; i++) {
-    OLED_DrawPoint(i, 0, 1);
-    OLED_DrawPoint(i, 63, 1);
-  }
-  for (uint8_t i = 0; i < 64; i++) {
-    OLED_DrawPoint(0, i, 1);
-    OLED_DrawPoint(127, i, 1);
-  }
+  // 创建多任务与消息队列
+  App_Tasks_Init();
 
-  // 2. 显示 "Hello World!" 字符串
-  OLED_ShowString(16, 24, "Hello World!");
-
-  // 3. 将显存数据刷新到 OLED 屏幕
-  OLED_UpdateScreen();
-  GPIOA->BSRR = GPIO_PIN_6; // PA6 = HIGH (OLED_UpdateScreen passed)
+  // 启动 FreeRTOS 调度器
+  vTaskStartScheduler();
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -116,8 +104,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-    HAL_GPIO_TogglePin(GPIOA, GPIO_PIN_1);
-    for (volatile int d = 0; d < 50000; d++) __NOP();
   }
   /* USER CODE END 3 */
 }

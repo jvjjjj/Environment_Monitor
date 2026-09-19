@@ -1,39 +1,40 @@
-# 基于 STM32F103 的环境监测系统 (Environment Monitor)
+# 基于STM32的智能环境监测终端
 
-本项目基于 **STM32F103C8T6** 微控制器设计并实现了一套低功耗、高可靠性的环境监测终端系统。系统集成了 I2C 接口的 **SSD1306 OLED 显示屏** 与 **AHT20 温湿度传感器**，支持硬件外设采集、显存级图形字符渲染，并在 **Proteus 9** 平台完成了全数字孪生闭环仿真与固件验证。
+## 1\. 项目简介
 
----
+本项目基于 STM32F103 主控微控制器，实现了一套具备本地渲染与串口交互的嵌入式环境监测终端。系统采用分层架构设计，实现了高可靠软件模拟 I2C 驱动，挂载 SSD1306 OLED 屏与 AHT20 复合传感器，并计划演进为 FreeRTOS 多任务调度系统。
 
-## 🛠️ 技术栈与软硬件平台
+## 2\. 硬件清单 (BOM)
 
-| 模块 | 规格 / 工具 | 说明 |
-| :--- | :--- | :--- |
-| **主控芯片** | STM32F103C8T6 (ARM Cortex-M3) | 主频 72MHz，Flash 64KB，SRAM 20KB |
-| **显示模块** | 0.96 寸 OLED (SSD1306 驱动芯片) | 128×64 分辨率，I2C 接口通讯 |
-| **传感模块** | AHT20 数字温湿度传感器 | 标称 I2C 从机地址 0x38，支持校准与 CRC |
-| **开发环境** | Keil MDK-ARM (v5.38+) | 采用 **Arm Compiler 6 (armclang)** 构建 |
-| **代码生成** | STM32CubeMX | HAL 固件库架构 |
-| **数字孪生** | Proteus 9 Professional | 系统电气连接与软硬件协同仿真平台 |
-| **版本控制** | Git | 规范分支与提交管理 |
+* 主控：STM32F103C8T6 (ARM Cortex-M3, 72MHz)
+* 调试器：ST-Link V2 (SWD 接口)
+* 显示屏：0.96寸 OLED (SSD1306, 128x64, 4-Pin I2C)
+* 传感器：AHT20+BMP280 二合一模块 (标准 I2C 总线)
+* 通信工具：CH340 USB-TTL 串口模块
+* 实验平台：830孔面包板 + 杜邦线
 
----
+## 3\. 软件架构设计
 
-## 📂 仓库目录结构
+* **Driver 层 (`bsp\_i2c`)**：实现具备超时退出机制（Timeout 防死锁）的软件模拟 I2C 总线时序，支持从机地址扫描探测。
+* **BSP 层 (`oled`, `aht20`)**：
 
-```text
-Environment_Monitor/
-├── Core/
-│   ├── Inc/               # 头文件目录
-│   │   ├── main.h         # 主应用定义
-│   │   ├── oled.h         # OLED 显存驱动与 API 声明
-│   │   └── oledfont.h     # 8x16 字符点阵字模库
-│   └── Src/               # 源文件目录
-│       ├── main.c         # 系统时钟、外设调用与业务循环
-│       ├── oled.c         # SSD1306 模拟 I2C 与显存刷新实现
-│       └── gpio.c         # GPIO 引脚初始化
-├── Drivers/               # ST 官方 CMSIS 与 STM32F1xx HAL 驱动库
-├── MDK-ARM/               # Keil 工程文件及输出目录
-│   └── Environment_Monitor.uvprojx
-├── Environment_Monitor.ioc# STM32CubeMX 配置文件
-├── .gitignore             # 嵌入式工程专属 Git 忽略规则
-└── README.md              # 项目技术白皮书
+  * `oled.c`：实现 1KB 本地显存（Gram Buffer）双缓冲机制，支持字符/字符串渲染与整屏批量更新。
+  * `aht20.c`：状态字轮询、物理量测量触发、20-bit 原始数据解析换算。
+* **App 层 (`main.c`)**：业务轮询调度，周期刷新环境温湿度数据。
+
+## 4\. 重点排障记录 (Troubleshooting)
+
+1. **Keil 编译器不兼容报错**：
+
+   * 现象：`Target uses ARM-Compiler Default Compiler Version 5 which is not available`。
+   * 根因：高版本 MDK 默认未集成 AC5。
+   * 解决：切换为基于 Clang 的 ARM Compiler 6 (AC6)，平滑升级构建环境。
+2. **ST-Link 无法识别目标芯片 (`No target connected`)**：
+
+   * 根因：出厂固件占用了 SWD 引脚，或通信时序握手失败。
+   * 解决：采用“硬件复位拉低并在烧录瞬间释放”的操作强行重置芯片，重新打通 SWD 链路。
+3. **面包板并联 I2C 屏幕不亮**：
+
+   * 根因：错误跨越了面包板中央隔离槽导致断路，以及 830 孔面包板电源轨存在中间断点。
+   * 解决：规范总线布局，将共地与时钟/数据线归集在同侧局部连续插孔内，恢复电气连通。
+
