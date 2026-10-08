@@ -13,7 +13,7 @@
 
 | 版本 Tag | 对应分支 | 核心架构与功能特性 |
 | :--- | :--- | :--- |
-| **`v1.0`** | - | **裸机基础版**：软件模拟 I2C（Timeout 防死锁机制），单总线挂载 SSD1306 OLED (1KB 双缓冲显存) 与 AHT20 温湿度传感器。 |
+| **`v1.0`** | [`v1.0`](https://github.com/jvjjjj/Environment_Monitor/tree/v1.0) / [`v1`](https://github.com/jvjjjj/Environment_Monitor/tree/v1) | **裸机基础版**：软件模拟 I2C（Timeout 防死锁机制），单总线挂载 SSD1306 OLED (1KB 双缓冲显存) 与 AHT20 温湿度传感器。 |
 | **`v2.0`** | [`v2.0`](https://github.com/jvjjjj/Environment_Monitor/tree/v2.0) | **通信与上位机**：设计定长二进制帧协议（帧头校验和防乱码），USART1 高速上传，配套开发 Python 多线程上位机动态监控曲线。 |
 | **`v3.0`** | [`v3.0`](https://github.com/jvjjjj/Environment_Monitor/tree/v3.0) / [`master`](https://github.com/jvjjjj/Environment_Monitor) | **实时操作系统重构**：移植 FreeRTOS，任务解耦（生产者-消费者模型与 Queue 消息队列），集成 BMP280 气压/相对海拔融合，支持 I2C 双物理地址自动探测（0x76/0x77）与传感器离线自愈。 |
 
