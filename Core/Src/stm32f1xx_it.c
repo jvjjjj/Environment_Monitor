@@ -22,6 +22,7 @@
 #include "stm32f1xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "esp8266.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -55,6 +56,8 @@
 /* USER CODE END 0 */
 
 /* External variables --------------------------------------------------------*/
+extern UART_HandleTypeDef huart2;
+extern TIM_HandleTypeDef htim4;
 
 /* USER CODE BEGIN EV */
 
@@ -138,12 +141,6 @@ void UsageFault_Handler(void)
   }
 }
 
-/*
-void SVC_Handler(void)
-{
-}
-*/
-
 /**
   * @brief This function handles Debug monitor.
   */
@@ -157,22 +154,52 @@ void DebugMon_Handler(void)
   /* USER CODE END DebugMonitor_IRQn 1 */
 }
 
-/*
-void PendSV_Handler(void)
-{
-}
-
-void SysTick_Handler(void)
-{
-}
-*/
-
 /******************************************************************************/
 /* STM32F1xx Peripheral Interrupt Handlers                                    */
 /* Add here the Interrupt Handlers for the used peripherals.                  */
 /* For the available peripheral interrupt handler names,                      */
 /* please refer to the startup file (startup_stm32f1xx.s).                    */
 /******************************************************************************/
+
+/**
+  * @brief This function handles TIM4 global interrupt.
+  */
+void TIM4_IRQHandler(void)
+{
+  /* USER CODE BEGIN TIM4_IRQn 0 */
+
+  /* USER CODE END TIM4_IRQn 0 */
+  HAL_TIM_IRQHandler(&htim4);
+  /* USER CODE BEGIN TIM4_IRQn 1 */
+
+  /* USER CODE END TIM4_IRQn 1 */
+}
+
+/**
+  * @brief This function handles USART2 global interrupt.
+  */
+void USART2_IRQHandler(void)
+{
+  /* USER CODE BEGIN USART2_IRQn 0 */
+  // 1. 检查是否收到新字节 (RXNE: Read data register not empty)
+  if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_RXNE) != RESET)
+  {
+      uint8_t ch = (uint8_t)(huart2.Instance->DR & 0xFF);
+      ESP8266_RxCallback(ch); // 毫秒级闪送入环形缓冲区
+  }
+
+  // 2. 硬件防死锁：清除溢出错误 (ORE)
+  if (__HAL_UART_GET_FLAG(&huart2, UART_FLAG_ORE) != RESET)
+  {
+      __HAL_UART_CLEAR_OREFLAG(&huart2);
+  }
+  return; // 直接处理完毕，不经过庞大的 HAL_UART_IRQHandler
+  /* USER CODE END USART2_IRQn 0 */
+  HAL_UART_IRQHandler(&huart2);
+  /* USER CODE BEGIN USART2_IRQn 1 */
+
+  /* USER CODE END USART2_IRQn 1 */
+}
 
 /* USER CODE BEGIN 1 */
 

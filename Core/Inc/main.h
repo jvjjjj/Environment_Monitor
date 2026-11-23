@@ -31,7 +31,11 @@ extern "C" {
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+typedef struct {
+    float temperature;  // 换算后的摄氏度 (-40.0 ~ 85.0)
+    float humidity;     // 换算后的相对湿度 (0.0 ~ 100.0%)
+    uint32_t timestamp; // 采集时标 (毫秒 Tick)
+} EnvData_t;
 /* USER CODE END Includes */
 
 /* Exported types ------------------------------------------------------------*/
@@ -57,6 +61,8 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
+#define LED_Pin GPIO_PIN_13
+#define LED_GPIO_Port GPIOC
 
 /* USER CODE BEGIN Private defines */
 

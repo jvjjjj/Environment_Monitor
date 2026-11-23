@@ -1,6 +1,8 @@
 # ==========================================
-# Keil MDK-ARM 编译生成的中间产物与临时文件
+# STM32 Keil MDK-ARM 工业级工程忽略规则
 # ==========================================
+
+# 1. Keil 编译产生的临时二进制与中间文件
 *.o
 *.d
 *.crf
@@ -8,27 +10,24 @@
 *.htm
 *.lnp
 *.sct
-*.map
 *.dep
 *.build_log.htm
+*.map
+*.iex
+
+# 2. Keil 用户界面与窗口布局记忆文件（因人而异，无需上传）
 *.uvguix.*
 *.uvoptx
-JLinkLog.txt
 
-# 忽略 Listings 和 Objects 缓存文件夹
-Listings/
-Objects/
+# 3. 编译输出目录（整个文件夹忽略）
+MDK-ARM/Listings/
+MDK-ARM/Objects/
+MDK-ARM/DebugConfig/
 
-# ==========================================
-# STM32CubeMX 临时备份
-# ==========================================
-.mxproject.bak
-
-# ==========================================
-# 操作系统级垃圾文件
-# ==========================================
+# 4. 操作系统临时文件
 .DS_Store
 Thumbs.db
-Desktop.ini
-
-# 注意：Proteus 仿真工程 (.pdsprj) 以及源代码 (.c, .h, .ioc) 必须保留在版本库中！
+desktop.ini
+__pycache__/
+*.pyc
+Core/Src/main_backup.c

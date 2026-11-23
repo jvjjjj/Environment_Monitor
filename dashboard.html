@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>STM32 物联网云端环境监控大屏</title>
+    <!-- 引入 MQTT.js 与 Chart.js 绘制动态趋势图 -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #0b0f19;
+            --card-bg: rgba(20, 27, 45, 0.75);
+            --border-color: rgba(66, 153, 225, 0.2);
+            --primary: #3b82f6;
+            --primary-glow: rgba(59, 130, 246, 0.4);
+            --danger: #ef4444;
+            --danger-glow: rgba(239, 68, 68, 0.4);
+            --success: #10b981;
+            --success-glow: rgba(16, 185, 129, 0.4);
+            --warning: #f59e0b;
+            --text-main: #f3f4f6;
+            --text-sub: #9ca3af;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.12) 0px, transparent 50%),
+                radial-gradient(at 100% 100%, rgba(139, 92, 246, 0.12) 0px, transparent 50%);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding: 24px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        /* 顶部 Header */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 24px;
+        }
+
+        .header-title h1 {
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header-title p {
+            color: var(--text-sub);
+            font-size: 13px;
+            margin-top: 4px;
+        }
+
+        .badge-status {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 14px;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 500;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            color: var(--success);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: currentColor;
+            box-shadow: 0 0 8px currentColor;
+        }
+
+        /* 核心卡片网格 */
+        .grid-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .card {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3);
+            position: relative;
+            overflow: hidden;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(99, 179, 237, 0.4);
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: var(--text-sub);
+            font-size: 14px;
+            margin-bottom: 16px;
+        }
+
+        .card-value {
+            font-size: 48px;
+            font-weight: 800;
+            letter-spacing: -1px;
+            display: flex;
+            align-items: baseline;
+            gap: 4px;
+        }
+
+        .card-unit {
+            font-size: 20px;
+            font-weight: 500;
+            color: var(--text-sub);
+        }
+
+        .card-footer {
+            margin-top: 14px;
+            font-size: 12px;
+            color: var(--text-sub);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        /* 温度告警状态卡片 */
+        .alarm-banner {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-radius: 12px;
+            background: rgba(16, 185, 129, 0.1);
+            border: 1px solid rgba(16, 185, 129, 0.25);
+            color: var(--success);
+            font-weight: 600;
+            transition: all 0.4s ease;
+        }
+
+        .alarm-banner.active {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.5);
+            color: var(--danger);
+            animation: pulse-danger 1.5s infinite;
+        }
+
+        @keyframes pulse-danger {
+            0%, 100% { box-shadow: 0 0 10px rgba(239, 68, 68, 0.2); }
+            50% { box-shadow: 0 0 25px rgba(239, 68, 68, 0.5); }
+        }
+
+        /* 趋势图与控制面板 */
+        .main-layout {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        @media (max-width: 900px) {
+            .main-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .chart-container {
+            position: relative;
+            height: 320px;
+            width: 100%;
+        }
+
+        /* 远程控制区 */
+        .control-group {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+
+        .btn-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+        }
+
+        .btn {
+            background: #1f293d;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #fff;
+            padding: 10px 14px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: all 0.2s;
+        }
+
+        .btn:hover {
+            background: #2b3852;
+            border-color: var(--primary);
+            box-shadow: 0 0 12px var(--primary-glow);
+        }
+
+        .btn-danger {
+            background: rgba(239, 68, 68, 0.15);
+            border-color: rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+        .btn-danger:hover {
+            background: var(--danger);
+            color: white;
+            box-shadow: 0 0 14px var(--danger-glow);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: white;
+        }
+
+        .custom-input-row {
+            display: flex;
+            gap: 8px;
+        }
+
+        input[type="number"], input[type="text"] {
+            flex: 1;
+            background: #111827;
+            border: 1px solid var(--border-color);
+            color: white;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        input:focus {
+            border-color: var(--primary);
+        }
+
+        /* 报文日志区 */
+        .logs-box {
+            background: #090d16;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-radius: 8px;
+            padding: 12px;
+            font-family: "Consolas", monospace;
+            font-size: 12px;
+            height: 140px;
+            overflow-y: auto;
+            color: #a0aec0;
+            white-space: pre-wrap;
+            line-height: 1.5;
+        }
+
+        .log-entry {
+            margin-bottom: 4px;
+        }
+        .log-time { color: #64748b; }
+        .log-topic { color: #38bdf8; }
+        .log-payload { color: #34d399; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- 顶部状态栏 -->
+    <header>
+        <div class="header-title">
+            <h1>🚀 STM32 边缘智能环境监控云端大屏</h1>
+            <p>硬件节点: STM32F103 | 虚拟网关协议: ESP8266 MQTT AT | 云端 Broker: broker.emqx.io</p>
+        </div>
+        <div id="connBadge" class="badge-status">
+            <span class="status-dot"></span>
+            <span id="connText">云端连接中...</span>
+        </div>
+    </header>
+
+    <!-- 实时数值卡片 -->
+    <div class="grid-cards">
+        <!-- 温度卡片 -->
+        <div class="card">
+            <div class="card-header">
+                <span>实时环境温度</span>
+                <span>🌡️ Temperature</span>
+            </div>
+            <div class="card-value" style="color: #f97316;">
+                <span id="valTemp">--.-</span>
+                <span class="card-unit">°C</span>
+            </div>
+            <div class="card-footer">
+                <span>正常范围: 10.0°C ~ 30.0°C</span>
+            </div>
+        </div>
+
+        <!-- 湿度卡片 -->
+        <div class="card">
+            <div class="card-header">
+                <span>实时相对湿度</span>
+                <span>💧 Humidity</span>
+            </div>
+            <div class="card-value" style="color: #38bdf8;">
+                <span id="valHum">--.-</span>
+                <span class="card-unit">%</span>
+            </div>
+            <div class="card-footer">
+                <span>自然微变算法波动模拟</span>
+            </div>
+        </div>
+
+        <!-- 报警状态卡片 -->
+        <div class="card">
+            <div class="card-header">
+                <span>环境安全状态</span>
+                <span>🛡️ Guard Status</span>
+            </div>
+            <div id="alarmBanner" class="alarm-banner">
+                <span id="alarmText">🟢 系统状态正常</span>
+                <span id="alarmIcon">OK</span>
+            </div>
+            <div class="card-footer">
+                <span id="lastUpdateTime">最后更新: 尚未接收数据</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 中间区域：折线图 + 远程控制 -->
+    <div class="main-layout">
+        <!-- 实时趋势图表 -->
+        <div class="card">
+            <div class="card-header">
+                <span>实时动态趋势分析 (近 25 次采样)</span>
+                <span>📈 Real-time Analytics</span>
+            </div>
+            <div class="chart-container">
+                <canvas id="envChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 远程反向控制面板 -->
+        <div class="card">
+            <div class="card-header">
+                <span>远程下发控制 (Cloud to Device)</span>
+                <span>🎮 Remote Control</span>
+            </div>
+            
+            <div class="control-group">
+                <p style="font-size: 13px; color: var(--text-sub);">
+                    点击以下按钮，指令将实时通过 MQTT 下发至 Python 网关并透传给单片机：
+                </p>
+
+                <!-- 快速预设按钮 -->
+                <div class="btn-grid">
+                    <button class="btn btn-danger" onclick="sendQuickTemp(35.5)">🔥 设为 35.5°C<br>(触发高温告警)</button>
+                    <button class="btn" style="color: #60a5fa;" onclick="sendQuickTemp(8.0)">❄️ 设为 8.0°C<br>(触发低温告警)</button>
+                    <button class="btn" onclick="sendQuickTemp(25.0)">🌱 设为 25.0°C<br>(标准常温)</button>
+                    <button class="btn btn-primary" onclick="sendAutoMode()">🔄 恢复自然自动模式</button>
+                </div>
+
+                <!-- 自定义温度输入 -->
+                <div class="custom-input-row">
+                    <input type="number" id="customTempInput" placeholder="输入自定义温度 (°C)" step="0.5">
+                    <button class="btn btn-primary" onclick="sendCustomTemp()">下发设定</button>
+                </div>
+
+                <!-- 接收原始报文小黑窗 -->
+                <div style="margin-top: 6px;">
+                    <div style="display: flex; justify-content: space-between; font-size: 12px; color: var(--text-sub); margin-bottom: 6px;">
+                        <span>接收报文流 (JSON)</span>
+                        <a href="javascript:void(0)" onclick="clearLogs()" style="color: #60a5fa; text-decoration: none;">清空</a>
+                    </div>
+                    <div id="logsBox" class="logs-box"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // ================= 配置参数 =================
+    const BROKER_WS_URL = "wss://broker.emqx.io:8084/mqtt";
+    const DATA_TOPIC    = "sensor/env_monitor_25087";
+    const CMD_TOPIC     = "sensor/env_monitor_25087/cmd";
+    const CLIENT_ID     = "WebDashboard_" + Math.random().toString(16).substr(2, 8);
+
+    // ================= 初始化 Chart.js 图表 =================
+    const ctx = document.getElementById('envChart').getContext('2d');
+    const maxDataPoints = 25;
+    const chartData = {
+        labels: [],
+        datasets: [
+            {
+                label: '温度 (°C)',
+                data: [],
+                borderColor: '#f97316',
+                backgroundColor: 'rgba(249, 115, 22, 0.1)',
+                borderWidth: 2,
+                tension: 0.35,
+                yAxisID: 'yTemp'
+            },
+            {
+                label: '湿度 (%)',
+                data: [],
+                borderColor: '#38bdf8',
+                backgroundColor: 'rgba(56, 189, 248, 0.1)',
+                borderWidth: 2,
+                tension: 0.35,
+                yAxisID: 'yHum'
+            }
+        ]
+    };
+
+    const envChart = new Chart(ctx, {
+        type: 'line',
+        data: chartData,
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 300 },
+            interaction: { mode: 'index', intersect: false },
+            scales: {
+                x: {
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#9ca3af', font: { size: 10 } }
+                },
+                yTemp: {
+                    type: 'linear',
+                    display: true,
+                    position: 'left',
+                    title: { display: true, text: '温度 (°C)', color: '#f97316' },
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#f97316' },
+                    suggestedMin: 15,
+                    suggestedMax: 40
+                },
+                yHum: {
+                    type: 'linear',
+                    display: true,
+                    position: 'right',
+                    title: { display: true, text: '湿度 (%)', color: '#38bdf8' },
+                    grid: { drawOnChartArea: false },
+                    ticks: { color: '#38bdf8' },
+                    suggestedMin: 30,
+                    suggestedMax: 80
+                }
+            },
+            plugins: {
+                legend: {
+                    labels: { color: '#e5e7eb', font: { size: 12 } }
+                }
+            }
+        }
+    });
+
+    // ================= 连接 MQTT 云端 =================
+    const connBadge = document.getElementById('connBadge');
+    const connText  = document.getElementById('connText');
+
+    console.log("[MQTT] Connecting to", BROKER_WS_URL);
+    const client = mqtt.connect(BROKER_WS_URL, {
+        clientId: CLIENT_ID,
+        clean: true,
+        connectTimeout: 4000,
+        reconnectPeriod: 2000
+    });
+
+    client.on('connect', () => {
+        console.log("[MQTT] Connected successfully!");
+        connBadge.style.color = "var(--success)";
+        connBadge.style.borderColor = "rgba(16, 185, 129, 0.4)";
+        connBadge.style.background = "rgba(16, 185, 129, 0.1)";
+        connText.innerText = "云端在线 (已连接)";
+
+        // 订阅单片机上报数据主题
+        client.subscribe(DATA_TOPIC, (err) => {
+            if (!err) {
+                appendLog("SYS", "已成功订阅单片机数据主题: " + DATA_TOPIC);
+            }
+        });
+    });
+
+    client.on('reconnect', () => {
+        connBadge.style.color = "var(--warning)";
+        connBadge.style.borderColor = "rgba(245, 158, 11, 0.4)";
+        connBadge.style.background = "rgba(245, 158, 11, 0.1)";
+        connText.innerText = "正在重连云端...";
+    });
+
+    client.on('error', (err) => {
+        console.error("[MQTT Error]", err);
+        connBadge.style.color = "var(--danger)";
+        connText.innerText = "连接异常";
+    });
+
+    // 接收 MQTT 消息
+    client.on('message', (topic, message) => {
+        const payloadStr = message.toString();
+        appendLog(topic, payloadStr);
+
+        try {
+            const data = JSON.parse(payloadStr);
+            if (data.temp !== undefined && data.hum !== undefined) {
+                updateDashboard(data.temp, data.hum, data.alarm);
+            }
+        } catch (e) {
+            console.warn("Non-JSON message:", payloadStr);
+        }
+    });
+
+    // ================= 刷新界面与图表 =================
+    function updateDashboard(temp, hum, isAlarm) {
+        // 1. 更新卡片大字
+        document.getElementById('valTemp').innerText = Number(temp).toFixed(1);
+        document.getElementById('valHum').innerText  = Number(hum).toFixed(1);
+
+        // 2. 更新告警状态
+        const banner = document.getElementById('alarmBanner');
+        const text   = document.getElementById('alarmText');
+        const icon   = document.getElementById('alarmIcon');
+
+        if (temp > 30.0) {
+            banner.className = "alarm-banner active";
+            text.innerText = "⚠️ 警报: 高温异常 (超标 > 30°C)";
+            icon.innerText = "ALARM!";
+        } else if (temp < 10.0) {
+            banner.className = "alarm-banner active";
+            text.innerText = "⚠️ 警报: 低温异常 (过冷 < 10°C)";
+            icon.innerText = "ALARM!";
+        } else {
+            banner.className = "alarm-banner";
+            text.innerText = "🟢 环境安全稳定";
+            icon.innerText = "NORMAL";
+        }
+
+        const now = new Date();
+        document.getElementById('lastUpdateTime').innerText = "最后更新: " + now.toLocaleTimeString();
+
+        // 3. 更新图表数据
+        const timeLabel = now.getHours() + ':' + String(now.getMinutes()).padStart(2, '0') + ':' + String(now.getSeconds()).padStart(2, '0');
+        chartData.labels.push(timeLabel);
+        chartData.datasets[0].data.push(temp);
+        chartData.datasets[1].data.push(hum);
+
+        if (chartData.labels.length > maxDataPoints) {
+            chartData.labels.shift();
+            chartData.datasets[0].data.shift();
+            chartData.datasets[1].data.shift();
+        }
+        envChart.update();
+    }
+
+    // ================= 远程反向控制 =================
+    function sendCloudCommand(cmdStr) {
+        if (!client.connected) {
+            alert("MQTT 客户端尚未连上云端，请稍候！");
+            return;
+        }
+        client.publish(CMD_TOPIC, cmdStr, { qos: 0 });
+        appendLog("SEND >>> " + CMD_TOPIC, cmdStr);
+    }
+
+    function sendQuickTemp(val) {
+        sendCloudCommand("temp " + val);
+    }
+
+    function sendAutoMode() {
+        sendCloudCommand("auto");
+    }
+
+    function sendCustomTemp() {
+        const input = document.getElementById('customTempInput');
+        const val = parseFloat(input.value);
+        if (isNaN(val)) {
+            alert("请输入合法的温度数值！");
+            return;
+        }
+        sendQuickTemp(val);
+        input.value = "";
+    }
+
+    // ================= 日志记录 =================
+    function appendLog(topic, payload) {
+        const box = document.getElementById('logsBox');
+        const timeStr = new Date().toLocaleTimeString();
+        const div = document.createElement('div');
+        div.className = "log-entry";
+        div.innerHTML = `<span class="log-time">[${timeStr}]</span> <span class="log-topic">${topic}:</span> <span class="log-payload">${payload}</span>`;
+        box.appendChild(div);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    function clearLogs() {
+        document.getElementById('logsBox').innerHTML = "";
+    }
+</script>
+
+</body>
+</html>
