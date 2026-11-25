@@ -17,6 +17,9 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include "aht20.h"
+#include "bmp280.h"
+#include "env_analyzer.h"
+#include "debug_console.h"
 #include "oled.h"
 #include "esp8266.h"
 /* USER CODE END Includes */
@@ -96,16 +99,19 @@ int main(void)
   // 1. 初始化 OLED 屏幕
   OLED_Init();
   OLED_ShowString(0, 0,  "== SYS INIT ==");
-  OLED_ShowString(0, 16, "AHT20 Checking..");
-  OLED_ShowString(0, 32, "ESP8266 Mocking");
+  OLED_ShowString(0, 16, "AHT20/BMP280..");
+  OLED_ShowString(0, 32, "FreeRTOS v4.0 ");
   OLED_ShowString(0, 48, "Please Wait...");
   OLED_UpdateScreen();
-  HAL_Delay(1000); // 留存开机画面 1 秒
+  HAL_Delay(600);
 
-  // 2. 初始化 AHT20 硬件传感器
-  AHT20_Init();
+  // 2. 初始化双传感器与边缘统计分析器
+  (void)AHT20_Init();
+  (void)BMP280_Init();
+  EnvAnalyzer_Init(NULL);
+  DebugConsole_Init(NULL);
 
-  // 3. 初始化 ESP8266 硬件串口中断接收
+  // 3. 初始化 ESP8266 硬件串口中断接收 (SPSC 环形缓冲 + ORE 防死锁)
   ESP8266_InitHardware();
 
   // 4. 清空屏幕，准备进入工作界面

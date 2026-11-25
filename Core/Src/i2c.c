@@ -110,6 +110,56 @@ void HAL_I2C_MspDeInit(I2C_HandleTypeDef* i2cHandle)
 }
 
 /* USER CODE BEGIN 1 */
+static void i2c_recovery_delay(void)
+{
+    for (volatile uint32_t i = 0; i < 120; i++)
+    {
+        __NOP();
+    }
+}
 
+/**
+  * @brief  I2C1 总线挂死 9 脉冲时钟复位自愈
+  * @note   当从机异常锁死 SDA 为低电平时，切回开漏 GPIO 输出最多 9 个 SCL 脉冲
+  *         促使其释放 SDA，补发 STOP 信号后重新初始化硬件 I2C1 外设。
+  */
+void I2C1_BusRecovery_9Pulse(void)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    HAL_I2C_DeInit(&hi2c1);
+
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    GPIO_InitStruct.Pin   = GPIO_PIN_6 | GPIO_PIN_7;
+    GPIO_InitStruct.Mode  = GPIO_MODE_OUTPUT_OD;
+    GPIO_InitStruct.Pull  = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
+
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6 | GPIO_PIN_7, GPIO_PIN_SET);
+    i2c_recovery_delay();
+
+    for (uint8_t i = 0; i < 9; i++)
+    {
+        if (HAL_GPIO_ReadPin(GPIOB, GPIO_PIN_7) == GPIO_PIN_SET)
+        {
+            break;
+        }
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_RESET);
+        i2c_recovery_delay();
+        HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+        i2c_recovery_delay();
+    }
+
+    /* 发送 STOP 条件：SCL 高电平期间 SDA 产生上升沿 */
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_RESET);
+    i2c_recovery_delay();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_6, GPIO_PIN_SET);
+    i2c_recovery_delay();
+    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_7, GPIO_PIN_SET);
+    i2c_recovery_delay();
+
+    MX_I2C1_Init();
+}
 /* USER CODE END 1 */
 

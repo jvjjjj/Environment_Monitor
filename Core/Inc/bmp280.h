@@ -3,34 +3,24 @@
 
 #include "stm32f1xx_hal.h"
 
-// BMP280 7位 I2C 从机候选地址
-#define BMP280_ADDR_L           0x76  // SDO 接地 (GND)
-#define BMP280_ADDR_H           0x77  // SDO 接高电平或上拉 (VCC)
+/* BMP280 7位 I2C 从机候选地址 */
+#define BMP280_ADDR_L           0x76U  /* SDO 接地 (GND) */
+#define BMP280_ADDR_H           0x77U  /* SDO 接高电平 (VCC) */
 
-// 关键寄存器映射
-#define BMP280_CHIP_ID_REG      0xD0
-#define BMP280_RESET_REG        0xE0
-#define BMP280_STATUS_REG       0xF3
-#define BMP280_CTRL_MEAS_REG    0xF4
-#define BMP280_CONFIG_REG       0xF5
-#define BMP280_DATA_START_REG   0xF7
+/* 关键寄存器映射 */
+#define BMP280_CHIP_ID_REG      0xD0U
+#define BMP280_RESET_REG        0xE0U
+#define BMP280_STATUS_REG       0xF3U
+#define BMP280_CTRL_MEAS_REG    0xF4U
+#define BMP280_CONFIG_REG       0xF5U
+#define BMP280_DATA_START_REG   0xF7U
 
-// 初始化 BMP280 (自动双地址探测 0x76/0x77 与多型号 ID 识别，返回 0: 成功, 1: 失败)
 uint8_t BMP280_Init(void);
+uint8_t BMP280_ReadData(float *temperature, float *pressure_pa);
+float   BMP280_CalcAltitude(float pressure_pa);
 
-// 读取物理气压值 (单位: Pa) 与温度 (单位: ℃)
-uint8_t BMP280_ReadData(float *temperature, float *pressure);
-
-// 根据标准大气压估算海拔高度 (单位: 米)
-float BMP280_CalcAltitude(float pressure);
-
-// 获取探测到的 I2C 设备地址 (0x76 或 0x77)
 uint8_t BMP280_GetAddr(void);
-
-// 获取读取到的芯片 ID (例如 0x58, 0x60, 0x56 等)
 uint8_t BMP280_GetChipID(void);
-
-// 查询 BMP280 是否已就绪可用
 uint8_t BMP280_IsReady(void);
 
-#endif
+#endif /* __BMP280_H */

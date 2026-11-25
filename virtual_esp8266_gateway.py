@@ -137,8 +137,8 @@ def main():
 def handle_stm32_message(line: str, ser: serial.Serial, mqtt_client: mqtt.Client):
     """ 处理 STM32 发来的消息与 AT 指令 """
     
-    # 1. 握手测试 AT
-    if line.upper() == "AT":
+    # 1. 握手测试与基础配置指令 (AT / ATE0 / AT+CWMODE / AT+MQTTUSERCFG)
+    if line.upper() in ("AT", "ATE0") or line.upper().startswith(("AT+CWMODE", "AT+MQTTUSERCFG")):
         print(f"\033[94m[MCU -> ESP8266]\033[0m {line}")
         time.sleep(0.05)
         ser.write(b"OK\r\n")

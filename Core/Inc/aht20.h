@@ -3,16 +3,15 @@
 
 #include "main.h"
 
-// ????????:???????? 0 ? 1
 typedef enum {
-    AHT20_OK            = 0x00, // ????
-    AHT20_ERR_BUS_BUSY  = 0x01, // I2C ???????
-    AHT20_ERR_TIMEOUT   = 0x02, // ???????
-    AHT20_ERR_DATA      = 0x03  // ??????
+    AHT20_OK            = 0x00,
+    AHT20_ERR_BUS_BUSY  = 0x01,
+    AHT20_ERR_TIMEOUT   = 0x02,
+    AHT20_ERR_DATA      = 0x03
 } AHT20_Status_t;
 
-// ????????? API
 AHT20_Status_t AHT20_Init(void);
 AHT20_Status_t AHT20_Read(float *temperature, float *humidity);
+uint8_t AHT20_IsReady(void);
 
 #endif /* __AHT20_H */

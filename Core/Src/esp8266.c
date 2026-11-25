@@ -5,22 +5,21 @@
 #include <string.h>
 #include <stdio.h>
 
-/* ==================== 1. 环形缓冲区 (Ring Buffer) ==================== */
+/* ==================== 1. SPSC 免锁环形缓冲区 (Ring Buffer) ==================== */
+/* 生产者: USART2_IRQHandler (仅写 s_rx_head)
+ * 消费者: Task_IoT          (仅写 s_rx_tail)
+ * Cortex-M3 上 16 位对齐读写具备指令级原子性，配合 volatile 实现 SPSC 无锁安全。 */
 static volatile uint8_t  s_rx_buf[ESP8266_RX_BUF_SIZE];
-static volatile uint16_t s_rx_head = 0; // 写指针（中断写）
-static volatile uint16_t s_rx_tail = 0; // 读指针（任务读）
+static volatile uint16_t s_rx_head = 0U;
+static volatile uint16_t s_rx_tail = 0U;
 
-// 累积接收历史文本
 static char s_accumulated_rx[ESP8266_RX_BUF_SIZE];
 
 volatile NetState_t g_net_state = NET_STATE_IDLE;
 
-/**
- * @brief 中断入队函数 (Fast-In)
- */
 void ESP8266_RxCallback(uint8_t data)
 {
-    uint16_t next_head = (s_rx_head + 1) % ESP8266_RX_BUF_SIZE;
+    uint16_t next_head = (uint16_t)((s_rx_head + 1U) % ESP8266_RX_BUF_SIZE);
     if (next_head != s_rx_tail)
     {
         s_rx_buf[s_rx_head] = data;
@@ -28,25 +27,19 @@ void ESP8266_RxCallback(uint8_t data)
     }
 }
 
-/**
- * @brief 清空环形缓冲区与累积历史
- */
 void ESP8266_ClearRx(void)
 {
     s_rx_tail = s_rx_head;
     s_accumulated_rx[0] = '\0';
 }
 
-/**
- * @brief 将环形缓冲区新到的字符追加到累积字符串中
- */
 static void poll_rx_to_accumulated(void)
 {
-    uint16_t cur_len = strlen(s_accumulated_rx);
-    while (s_rx_tail != s_rx_head && cur_len < sizeof(s_accumulated_rx) - 1)
+    size_t cur_len = strlen(s_accumulated_rx);
+    while (s_rx_tail != s_rx_head && cur_len < (sizeof(s_accumulated_rx) - 1U))
     {
         s_accumulated_rx[cur_len++] = (char)s_rx_buf[s_rx_tail];
-        s_rx_tail = (s_rx_tail + 1) % ESP8266_RX_BUF_SIZE;
+        s_rx_tail = (uint16_t)((s_rx_tail + 1U) % ESP8266_RX_BUF_SIZE);
     }
     s_accumulated_rx[cur_len] = '\0';
 }
@@ -54,80 +47,118 @@ static void poll_rx_to_accumulated(void)
 /* ==================== 2. 硬件中断初始化 ==================== */
 void ESP8266_InitHardware(void)
 {
-    // 显式开启 USART2 的接收中断
+    ESP8266_ClearRx();
     __HAL_UART_ENABLE_IT(&huart2, UART_IT_RXNE);
     __HAL_UART_ENABLE_IT(&huart2, UART_IT_ERR);
 }
 
-/* ==================== 3. 非阻塞 AT 发送与步进轮询 ==================== */
+/* ==================== 3. 非阻塞 AT 步进轮询引擎 ==================== */
 ESP8266_Status_t ESP8266_SendCmd(const char *cmd, const char *expect_res, uint32_t timeout_ms)
 {
-    uint32_t elapsed = 0;
-    const uint32_t step_ms = 20;
+    uint32_t elapsed = 0U;
+    const uint32_t step_ms = 20U;
 
-    // 不做全量硬清空，只重置累积文本
-    s_accumulated_rx[0] = '\0';
+    ESP8266_ClearRx();
 
-    // 1. 发送指令
-    HAL_UART_Transmit(&huart2, (uint8_t *)cmd, strlen(cmd), 100);
-    HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, 100);
+    HAL_UART_Transmit(&huart2, (uint8_t *)cmd, (uint16_t)strlen(cmd), 100U);
+    HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2U, 100U);
 
-    // 2. 步进轮询等待应答
     while (elapsed < timeout_ms)
     {
         vTaskDelay(pdMS_TO_TICKS(step_ms));
         elapsed += step_ms;
 
-        // 提取新接收的字符
         poll_rx_to_accumulated();
 
-        // 只要累积的文本里出现了我们期待的关键字 (比如 "OK")
         if (expect_res != NULL && strstr(s_accumulated_rx, expect_res) != NULL)
         {
-            // 立即回发一段清晰的确认日志，让你在串口助手亲眼看见！
-            const char ack_msg[] = "\r\n>>> [STM32] MATCHED 'OK'! PROGRESSING TO NEXT STAGE! <<<\r\n\r\n";
-            HAL_UART_Transmit(&huart2, (uint8_t *)ack_msg, strlen(ack_msg), 100);
             return ESP8266_OK;
         }
-
-        if (strstr(s_accumulated_rx, "ERROR") != NULL) return ESP8266_ERROR;
-        if (strstr(s_accumulated_rx, "FAIL") != NULL)  return ESP8266_FAIL;
+        if (strstr(s_accumulated_rx, "ALREADY CONNECTED") != NULL)
+        {
+            return ESP8266_ALREADY_CONNECTED;
+        }
+        if (strstr(s_accumulated_rx, "ERROR") != NULL)
+        {
+            return ESP8266_ERROR;
+        }
+        if (strstr(s_accumulated_rx, "FAIL") != NULL)
+        {
+            return ESP8266_FAIL;
+        }
     }
 
     return ESP8266_TIMEOUT;
 }
 
-/* ==================== 4. 业务流程函数 ==================== */
+/* ==================== 4. 乐鑫标准 AT + MQTT 业务封装 ==================== */
+bool ESP8266_TestAT(void)
+{
+    if (ESP8266_SendCmd("AT", "OK", 1000U) != ESP8266_OK)
+    {
+        return false;
+    }
+    /* 关闭本地回显 (ATE0)，防止指令回显污染环形缓冲区匹配 */
+    (void)ESP8266_SendCmd("ATE0", "OK", 500U);
+    return true;
+}
+
 bool ESP8266_ConnectWiFi(const char *ssid, const char *pwd)
 {
     char cmd[128];
-    if (ESP8266_SendCmd("AT+CWMODE=1", "OK", 3000) != ESP8266_OK) return false;
 
-    snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"", ssid, pwd);
-    return (ESP8266_SendCmd(cmd, "OK", 5000) == ESP8266_OK);
-}
-
-bool ESP8266_ConnectMQTT(const char *broker_ip, uint16_t port)
-{
-    char cmd[128];
-    snprintf(cmd, sizeof(cmd), "AT+CIPSTART=\"TCP\",\"%s\",%u", broker_ip, port);
-    return (ESP8266_SendCmd(cmd, "OK", 5000) == ESP8266_OK);
-}
-
-bool ESP8266_PublishData(float temp, float humi)
-{
-    char payload[128];
-    char cmd[64];
-
-    snprintf(payload, sizeof(payload), "{\"temp\":%.1f,\"humi\":%.1f}", temp, humi);
-
-    // 申请发送：在真实模组中回复 '>'，在仿真模拟时你回复 '>' 或 'OK' 都能通关！
-    snprintf(cmd, sizeof(cmd), "AT+CIPSEND=%d", (int)strlen(payload));
-    if (ESP8266_SendCmd(cmd, "OK", 3000) != ESP8266_OK)
+    if (ESP8266_SendCmd("AT+CWMODE=1", "OK", 2000U) != ESP8266_OK)
     {
         return false;
     }
 
-    // 报文推送确认：回复 'SEND OK' 或 'OK' 都能通过！
-    return (ESP8266_SendCmd(payload, "OK", 3000) == ESP8266_OK);
+    snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"", ssid, pwd);
+    ESP8266_Status_t st = ESP8266_SendCmd(cmd, "OK", 5000U);
+    return (st == ESP8266_OK || st == ESP8266_ALREADY_CONNECTED);
+}
+
+bool ESP8266_ConnectMQTT(const char *broker_host, uint16_t port, const char *client_id)
+{
+    char cmd[160];
+
+    /* 配置 MQTT 客户端 ID (兼容乐鑫官方 MQTT AT 固件及本地 HIL 网关) */
+    snprintf(cmd, sizeof(cmd), "AT+MQTTUSERCFG=0,1,\"%s\",\"\",\"\",0,0,\"\"", client_id);
+    (void)ESP8266_SendCmd(cmd, "OK", 1500U);
+
+    snprintf(cmd, sizeof(cmd), "AT+MQTTCONN=0,\"%s\",%u,1", broker_host, (unsigned int)port);
+    ESP8266_Status_t st = ESP8266_SendCmd(cmd, "OK", 5000U);
+    return (st == ESP8266_OK || st == ESP8266_ALREADY_CONNECTED);
+}
+
+bool ESP8266_PublishEnv(const char *topic, const EnvData_t *env)
+{
+    char raw_json[128];
+    char escaped_json[192];
+    char cmd[256];
+
+    if (topic == NULL || env == NULL)
+    {
+        return false;
+    }
+
+    /* 1. 构造标准物模型 JSON 报文 */
+    snprintf(raw_json, sizeof(raw_json),
+             "{\"temp\":%.1f,\"humi\":%.1f,\"press\":%.1f,\"alt\":%.1f}",
+             env->temperature, env->humidity, env->pressure, env->altitude);
+
+    /* 2. 对 JSON 内部双引号执行自动转义 (" -> \")，防止截断 AT+MQTTPUB 参数 */
+    size_t j = 0U;
+    for (size_t i = 0U; raw_json[i] != '\0' && j < (sizeof(escaped_json) - 2U); i++)
+    {
+        if (raw_json[i] == '"')
+        {
+            escaped_json[j++] = '\\';
+        }
+        escaped_json[j++] = raw_json[i];
+    }
+    escaped_json[j] = '\0';
+
+    /* 3. QoS 0 轻量遥测发布 */
+    snprintf(cmd, sizeof(cmd), "AT+MQTTPUB=0,\"%s\",\"%s\",0,0", topic, escaped_json);
+    return (ESP8266_SendCmd(cmd, "OK", 2000U) == ESP8266_OK);
 }

@@ -1,6 +1,7 @@
 #include "debug_console.h"
 #include "virtual_sensor.h"
 #include "env_analyzer.h"
+#include "protocol.h"
 #include "usart.h"
 #include <stdio.h>
 #include <string.h>
@@ -100,6 +101,16 @@ static void ExecuteCommand(char *cmd)
     else if (strcmp(cmd, "hist") == 0 || strcmp(cmd, "history") == 0)
     {
         EnvAnalyzer_PrintHistory();
+    }
+    else if (strcmp(cmd, "proto on") == 0)
+    {
+        Protocol_SetEnabled(true);
+        printf("[DEBUG OK] 9-byte binary protocol upload ENABLED.\r\n");
+    }
+    else if (strcmp(cmd, "proto off") == 0)
+    {
+        Protocol_SetEnabled(false);
+        printf("[DEBUG OK] 9-byte binary protocol upload PAUSED.\r\n");
     }
     else
     {
